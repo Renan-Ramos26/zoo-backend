@@ -35,3 +35,4 @@ def criar_animal(animal: Animal):
     animal.id = len(animais_db) + 1
     animais_db.append(animal)
     return {"mensagem": "Animal criado com sucesso", "animal": animal}
+#10
