@@ -27,7 +27,7 @@ class Animal(SQLModel, table=True):
     habitat: str
     pais_origem: str
 
-# 👉 Modelo usado para criar animais (sem ID)
+# Modelo para criação e atualização (sem ID)
 class AnimalCreate(SQLModel):
     nome: str
     descricao: str
@@ -64,8 +64,58 @@ def listar_animais(session: Session = Depends(get_session)):
 
 @app.post("/animais")
 def criar_animal(animal: AnimalCreate, session: Session = Depends(get_session)):
-    novo_animal = Animal(**animal.dict())  # cria usando dados do AnimalCreate
+    novo_animal = Animal(**animal.dict())
     session.add(novo_animal)
     session.commit()
     session.refresh(novo_animal)
     return {"mensagem": "Animal criado com sucesso", "animal": novo_animal}
+
+@app.delete("/animais/{animal_id}")
+def deletar_animal(animal_id: int, session: Session = Depends(get_session)):
+    animal = session.get(Animal, animal_id)
+    if not animal:
+        return {"erro": "Animal não encontrado"}
+    session.delete(animal)
+    session.commit()
+    return {"mensagem": "Animal deletado com sucesso"}
+
+@app.put("/animais/{animal_id}")
+def atualizar_animal(animal_id: int, dados: AnimalCreate, session: Session = Depends(get_session)):
+    animal = session.get(Animal, animal_id)
+    if not animal:
+        return {"erro": "Animal não encontrado"}
+
+    for campo, valor in dados.dict().items():
+        setattr(animal, campo, valor)
+
+    session.add(animal)
+    session.commit()
+    session.refresh(animal)
+    return {"mensagem": "Animal atualizado com sucesso", "animal": animal}
+
+# --------------------- MODELOS -----------------------
+
+from typing import Optional
+from datetime import date
+from sqlmodel import SQLModel, Field, Relationship
+
+class Cuidado(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nome: str
+    descricao: str
+    data: date
+
+    animal_id: int = Field(foreign_key="animal.id")  # 👈 Ligação com animal
+    animal: Optional["Animal"] = Relationship(back_populates="cuidados")
+
+
+class Animal(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nome: str
+    descricao: str
+    data_nascimento: date
+    especie: str
+    habitat: str
+    pais_origem: str
+
+    cuidados: list[Cuidado] = Relationship(back_populates="animal")  # 👈 animal possui vários cuidados
