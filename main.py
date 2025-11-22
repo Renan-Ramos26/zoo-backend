@@ -1,8 +1,8 @@
 from fastapi import FastAPI, Depends
-from sqlmodel import SQLModel, Field, Session, create_engine, select
+from sqlmodel import SQLModel, Field, Session, create_engine, select, Relationship
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import date
-from typing import Optional
+from typing import Optional, List
 
 # --------------------- DATABASE ---------------------
 
@@ -16,8 +16,35 @@ def get_session():
     with Session(engine) as session:
         yield session
 
-# --------------------- MODELOS -----------------------
+# -------------------- MODELOS -----------------------
 
+# Modelo para criação/atualização de ANIMAIS
+class AnimalCreate(SQLModel):
+    nome: str
+    descricao: str
+    data_nascimento: date
+    especie: str
+    habitat: str
+    pais_origem: str
+
+# Modelo para criação/atualização de CUIDADOS
+class CuidadoCreate(SQLModel):
+    nome: str
+    descricao: str
+    data: date
+    animal_id: int  # 👈 quem recebe o cuidado
+
+# Modelo Cuidado (salvo no banco)
+class Cuidado(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nome: str
+    descricao: str
+    data: date
+
+    animal_id: int = Field(foreign_key="animal.id")
+    animal: Optional["Animal"] = Relationship(back_populates="cuidados")
+
+# Modelo Animal (salvo no banco)
 class Animal(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     nome: str
@@ -27,20 +54,13 @@ class Animal(SQLModel, table=True):
     habitat: str
     pais_origem: str
 
-# Modelo para criação e atualização (sem ID)
-class AnimalCreate(SQLModel):
-    nome: str
-    descricao: str
-    data_nascimento: date
-    especie: str
-    habitat: str
-    pais_origem: str
+    cuidados: List[Cuidado] = Relationship(back_populates="animal")
 
-# --------------------- APP --------------------------
+# --------------------- APP -------------------------
 
 app = FastAPI()
 
-# HABILITANDO CORS 🌍
+# Habilitando CORS 🌍
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -54,30 +74,27 @@ app.add_middleware(
 def on_startup():
     create_db()
 
-# ------------------ ROTAS ---------------------------
+# ------------------ ROTAS ANIMAL --------------------
 
 @app.get("/animais")
 def listar_animais(session: Session = Depends(get_session)):
-    statement = select(Animal)
-    result = session.exec(statement).all()
+    result = session.exec(select(Animal)).all()
     return result
 
-@app.post("/animais")
-def criar_animal(animal: AnimalCreate, session: Session = Depends(get_session)):
-    novo_animal = Animal(**animal.dict())
-    session.add(novo_animal)
-    session.commit()
-    session.refresh(novo_animal)
-    return {"mensagem": "Animal criado com sucesso", "animal": novo_animal}
-
-@app.delete("/animais/{animal_id}")
-def deletar_animal(animal_id: int, session: Session = Depends(get_session)):
+@app.get("/animais/{animal_id}")
+def buscar_animal(animal_id: int, session: Session = Depends(get_session)):
     animal = session.get(Animal, animal_id)
     if not animal:
         return {"erro": "Animal não encontrado"}
-    session.delete(animal)
+    return animal
+
+@app.post("/animais")
+def criar_animal(animal: AnimalCreate, session: Session = Depends(get_session)):
+    novo = Animal(**animal.dict())
+    session.add(novo)
     session.commit()
-    return {"mensagem": "Animal deletado com sucesso"}
+    session.refresh(novo)
+    return {"mensagem": "Animal criado com sucesso", "animal": novo}
 
 @app.put("/animais/{animal_id}")
 def atualizar_animal(animal_id: int, dados: AnimalCreate, session: Session = Depends(get_session)):
@@ -91,31 +108,61 @@ def atualizar_animal(animal_id: int, dados: AnimalCreate, session: Session = Dep
     session.add(animal)
     session.commit()
     session.refresh(animal)
-    return {"mensagem": "Animal atualizado com sucesso", "animal": animal}
+    return {"mensagem": "Animal atualizado", "animal": animal}
 
-# --------------------- MODELOS -----------------------
+@app.delete("/animais/{animal_id}")
+def deletar_animal(animal_id: int, session: Session = Depends(get_session)):
+    animal = session.get(Animal, animal_id)
+    if not animal:
+        return {"erro": "Animal não encontrado"}
+    session.delete(animal)
+    session.commit()
+    return {"mensagem": "Animal deletado com sucesso"}
 
-from typing import Optional
-from datetime import date
-from sqlmodel import SQLModel, Field, Relationship
+# ------------------ ROTAS CUIDADOS ------------------
 
-class Cuidado(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    nome: str
-    descricao: str
-    data: date
+@app.get("/cuidados")
+def listar_cuidados(session: Session = Depends(get_session)):
+    return session.exec(select(Cuidado)).all()
 
-    animal_id: int = Field(foreign_key="animal.id")  # 👈 Ligação com animal
-    animal: Optional["Animal"] = Relationship(back_populates="cuidados")
+@app.get("/cuidados/{cuidado_id}")
+def buscar_cuidado(cuidado_id: int, session: Session = Depends(get_session)):
+    cuidado = session.get(Cuidado, cuidado_id)
+    if not cuidado:
+        return {"erro": "Cuidado não encontrado"}
+    return cuidado
 
+@app.post("/cuidados")
+def criar_cuidado(cuidado: CuidadoCreate, session: Session = Depends(get_session)):
+    novo = Cuidado(**cuidado.dict())
+    session.add(novo)
+    session.commit()
+    session.refresh(novo)
+    return {"mensagem": "Cuidado criado com sucesso", "cuidado": novo}
 
-class Animal(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    nome: str
-    descricao: str
-    data_nascimento: date
-    especie: str
-    habitat: str
-    pais_origem: str
+@app.put("/cuidados/{cuidado_id}")
+def atualizar_cuidado(cuidado_id: int, dados: CuidadoCreate, session: Session = Depends(get_session)):
+    cuidado = session.get(Cuidado, cuidado_id)
+    if not cuidado:
+        return {"erro": "Cuidado não encontrado"}
 
-    cuidados: list[Cuidado] = Relationship(back_populates="animal")  # 👈 animal possui vários cuidados
+    for campo, valor in dados.dict().items():
+        setattr(cuidado, campo, valor)
+
+    session.add(cuidado)
+    session.commit()
+    session.refresh(cuidado)
+    return {"mensagem": "Cuidado atualizado", "cuidado": cuidado}
+
+@app.delete("/cuidados/{cuidado_id}")
+def deletar_cuidado(cuidado_id: int, session: Session = Depends(get_session)):
+    cuidado = session.get(Cuidado, cuidado_id)
+    if not cuidado:
+        return {"erro": "Cuidado não encontrado"}
+    session.delete(cuidado)
+    session.commit()
+    return {"mensagem": "Cuidado deletado com sucesso"}
+
+@app.get("/")
+def home():
+    return {"mensagem": "API do Zoológico está funcionando! 🐾"}
